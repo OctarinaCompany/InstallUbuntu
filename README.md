@@ -9,12 +9,12 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/vatsan-madhavan/NerdFo
 ```
 
 ## Powershell
-```shell
+```powershell
 curl -fsSL https://raw.githubusercontent.com/OctarinaCompany/InstallUbuntu/refs/heads/main/scripts/install_powershell.sh | bash
 ```
 
 then 
 
-```shell
+```powershell
 pwsh
 ```
