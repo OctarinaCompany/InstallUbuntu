@@ -21,3 +21,8 @@ then
 pwsh
 ```
 
+## Python,pip & uvx 
+
+```powershell
+curl -fsSL https://raw.githubusercontent.com/OctarinaCompany/InstallUbuntu/refs/heads/main/scripts/install_python.sh | bash
+```
