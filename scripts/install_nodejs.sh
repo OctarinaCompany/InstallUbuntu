@@ -521,6 +521,9 @@ main() {
 trap 'error_exit "Script interrupted by user"' INT TERM
 
 # Execute main function if script is run directly
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
+    main "$@"
+else
+    # Script is being piped or sourced, execute main function
     main "$@"
 fi
