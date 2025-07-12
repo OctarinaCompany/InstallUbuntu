@@ -2,7 +2,7 @@
 
 # ==============================================================================
 # Ubuntu 24.04 Automated Installation Script
-# Installs: Python (latest/LTS), pip, uv/uvx, and PowerShell (latest)
+# Installs: Python (latest/LTS), pip, and uv/uvx
 # Author: Assistant
 # Date: $(date +%Y-%m-%d)
 # License: MIT
@@ -121,17 +121,14 @@ update_system() {
 # ==============================================================================
 
 get_latest_python_version() {
-    print_status "Determining latest Python version..."
-    
     # Get latest Python 3 version from deadsnakes PPA info
     local latest_version
-    latest_version=$(curl -s "https://api.github.com/repos/python/cpython/releases/latest" | \
+    latest_version=$(curl -s "https://api.github.com/repos/python/cpython/releases/latest" 2>/dev/null | \
         grep -oP '"tag_name": "v\K[0-9]+\.[0-9]+' | head -1)
     
     if [[ -z "$latest_version" ]]; then
         # Fallback to a known recent version
         latest_version="3.12"
-        print_warning "Could not determine latest Python version, using fallback: $latest_version"
     fi
     
     echo "$latest_version"
@@ -151,8 +148,13 @@ install_python() {
         python_version=$(get_lts_python_version)
         print_status "Installing Python LTS version: $python_version"
     else
+        print_status "Determining latest Python version..."
         python_version=$(get_latest_python_version)
-        print_status "Installing latest Python version: $python_version"
+        if [[ "$python_version" == "3.12" ]]; then
+            print_warning "Could not determine latest Python version, using fallback: $python_version"
+        else
+            print_status "Installing latest Python version: $python_version"
+        fi
     fi
     
     # Check if Python is already installed and what version
@@ -217,9 +219,13 @@ install_python() {
     installed_version=$(python3 --version)
     print_success "Python installed: $installed_version"
     
-    # Ensure pip is up to date
-    python3 -m pip install --user --upgrade pip || {
-        print_warning "Failed to upgrade pip, continuing..."
+    # Ensure pip is up to date (use --user to avoid externally-managed-environment error)
+    print_status "Upgrading pip to latest version..."
+    python3 -m pip install --user --upgrade pip --break-system-packages 2>/dev/null || {
+        print_warning "Could not upgrade pip with --break-system-packages, trying --user only"
+        python3 -m pip install --user --upgrade pip 2>/dev/null || {
+            print_warning "Could not upgrade pip, continuing with system version"
+        }
     }
     
     print_success "Python installation completed"
@@ -298,112 +304,6 @@ install_uv() {
 }
 
 # ==============================================================================
-# PowerShell Installation Functions
-# ==============================================================================
-
-get_latest_powershell_version() {
-    print_status "Determining latest PowerShell version..."
-    
-    local latest_version
-    latest_version=$(curl -s "https://api.github.com/repos/PowerShell/PowerShell/releases/latest" | \
-        grep -oP '"tag_name": "v\K[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-    
-    if [[ -z "$latest_version" ]]; then
-        print_error "Could not determine latest PowerShell version"
-        exit 1
-    fi
-    
-    echo "$latest_version"
-}
-
-install_powershell() {
-    print_status "Installing PowerShell..."
-    
-    # Check if PowerShell is already installed
-    if command -v pwsh &> /dev/null; then
-        local current_version
-        current_version=$(pwsh --version | grep -oP '\d+\.\d+\.\d+' || echo "unknown")
-        print_status "PowerShell is already installed (version: $current_version)"
-        
-        local latest_version
-        latest_version=$(get_latest_powershell_version)
-        
-        if [[ "$current_version" == "$latest_version" ]]; then
-            print_success "PowerShell is already up to date"
-            return 0
-        else
-            print_status "Updating PowerShell from $current_version to $latest_version"
-        fi
-    fi
-    
-    # Get the latest PowerShell version
-    local ps_version
-    ps_version=$(get_latest_powershell_version)
-    print_status "Installing PowerShell version: $ps_version"
-    
-    # Determine architecture
-    local arch
-    arch=$(dpkg --print-architecture)
-    
-    # Map architecture to PowerShell naming convention
-    local ps_arch
-    case "$arch" in
-        amd64) ps_arch="x64" ;;
-        arm64) ps_arch="arm64" ;;
-        armhf) ps_arch="arm32" ;;
-        *) 
-            print_error "Unsupported architecture: $arch"
-            exit 1
-            ;;
-    esac
-    
-    # Create temporary directory
-    local temp_dir
-    temp_dir=$(mktemp -d)
-    cd "$temp_dir"
-    
-    # Download PowerShell package
-    local package_name="powershell_${ps_version}-1.deb_${ps_arch}.deb"
-    local download_url="https://github.com/PowerShell/PowerShell/releases/download/v${ps_version}/${package_name}"
-    
-    print_status "Downloading PowerShell package..."
-    wget -q "$download_url" || {
-        print_error "Failed to download PowerShell package from $download_url"
-        cd - > /dev/null
-        rm -rf "$temp_dir"
-        exit 1
-    }
-    
-    # Install PowerShell package
-    print_status "Installing PowerShell package..."
-    sudo dpkg -i "$package_name" || {
-        print_status "Resolving dependencies..."
-        sudo apt-get install -f -y || {
-            print_error "Failed to resolve PowerShell dependencies"
-            cd - > /dev/null
-            rm -rf "$temp_dir"
-            exit 1
-        }
-    }
-    
-    # Clean up
-    cd - > /dev/null
-    rm -rf "$temp_dir"
-    
-    # Verify PowerShell installation
-    if command -v pwsh &> /dev/null; then
-        local installed_version
-        installed_version=$(pwsh --version)
-        print_success "PowerShell installed: $installed_version"
-    else
-        print_error "PowerShell installation verification failed"
-        exit 1
-    fi
-    
-    print_success "PowerShell installation completed"
-}
-
-# ==============================================================================
 # Verification Functions
 # ==============================================================================
 
@@ -450,16 +350,6 @@ verify_installations() {
         success=false
     fi
     
-    # Verify PowerShell
-    if command -v pwsh &> /dev/null; then
-        local ps_ver
-        ps_ver=$(pwsh --version)
-        print_success "✓ PowerShell: $ps_ver"
-    else
-        print_error "✗ PowerShell: Not found"
-        success=false
-    fi
-    
     if [[ "$success" == "true" ]]; then
         print_success "All installations verified successfully!"
         return 0
@@ -485,10 +375,6 @@ display_usage_info() {
     echo "  uvx cowsay 'Hello World!'    # Run tools without installing"
     echo "  uv tool install ruff         # Install tools globally"
     echo
-    echo -e "${GREEN}PowerShell:${NC}"
-    echo "  pwsh                # Start PowerShell"
-    echo "  pwsh -c 'Get-Process'    # Run PowerShell command"
-    echo
     echo -e "${YELLOW}Note:${NC} You may need to restart your terminal or run 'source ~/.bashrc' to update your PATH"
 }
 
@@ -499,7 +385,7 @@ display_usage_info() {
 main() {
     echo "================================================================================"
     echo "  $SCRIPT_NAME"
-    echo "  Installing: Python, pip, uv/uvx, and PowerShell on Ubuntu 24.04"
+    echo "  Installing: Python, pip, and uv/uvx on Ubuntu 24.04"
     echo "  Log file: $LOG_FILE"
     echo "================================================================================"
     echo
@@ -515,7 +401,6 @@ main() {
     # Install components
     install_python
     install_uv
-    install_powershell
     
     # Verify everything worked
     verify_installations || {
