@@ -1,7 +1,11 @@
 #!/bin/bash
 
-curl -LsSf https://astral.sh/uv/install.sh | sh
+sudo apt update
 
-source $HOME/.local/bin/env
+sudo apt -y install pipx
 
-uv python install --reinstall
+sudo apt -y install pip
+
+pipx install uv
+
+uv python install
