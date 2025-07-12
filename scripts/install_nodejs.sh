@@ -1,573 +1,657 @@
 #!/bin/bash
 
-# =============================================================================
-# Automated Node.js, npm & npx Installation Script for Ubuntu 24.04
-# =============================================================================
-# This script dynamically installs the latest version or LTS version of 
-# Node.js, npm, and npx on Ubuntu 24.04 without hardcoding version numbers.
-# All operations are fully automated and non-interactive.
-#
-# Features:
-# - Dynamic detection of latest LTS and current versions
-# - Non-interactive installation with forced operations
-# - Choice between NVM method and NodeSource repository method
-# - Automatic system updates and prerequisite installation
-# - Comprehensive error handling and logging
-# - Profile configuration for persistent environment setup
-#
-# Usage:
-#   bash install_nodejs.sh [lts|latest] [nvm|nodesource]
-#   bash install_nodejs.sh                    # Default: LTS via NodeSource
-#   bash install_nodejs.sh lts               # LTS via NodeSource
-#   bash install_nodejs.sh latest nvm        # Latest via NVM
-#
-# Author: Generated for Ubuntu 24.04 compatibility
-# Date: $(date +%Y-%m-%d)
-# =============================================================================
+#==============================================================================
+# AUTOMATED NODE.JS INSTALLATION SCRIPT FOR UBUNTU 24.04
+#==============================================================================
+# Description: Fully automated script to install the latest or LTS Node.js 
+#              version using NVM (Node Version Manager) without hardcoding versions
+# Author: OctarinaCompany
+# Version: 2.0
+# Compatible: Ubuntu 24.04 LTS
+# Requirements: curl, wget, git (auto-installed if missing)
+# Usage: curl -H 'Cache-Control: no-cache' -fsSL https://raw.githubusercontent.com/OctarinaCompany/InstallUbuntu/refs/heads/main/scripts/install_nodejs.sh | bash
+#==============================================================================
 
-set -eo pipefail  # Exit on error and pipe failures (allow unbound variables for compatibility)
-
-# =============================================================================
-# Configuration Variables
-# =============================================================================
+set -euo pipefail  # Exit on error, undefined vars, pipe failures
 
 # Color codes for output formatting
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[0;33m'
+readonly YELLOW='\033[1;33m'
 readonly BLUE='\033[0;34m'
+readonly PURPLE='\033[0;35m'
 readonly CYAN='\033[0;36m'
 readonly NC='\033[0m' # No Color
 
 # Script configuration
-readonly SCRIPT_NAME="nodejs-installer"
-readonly LOG_FILE="/tmp/${SCRIPT_NAME}-$(date +%Y%m%d-%H%M%S).log"
-readonly REQUIRED_UBUNTU_VERSION="24.04"
+readonly SCRIPT_NAME="Node.js Installation Script"
+readonly SCRIPT_VERSION="2.0"
+readonly NVM_VERSION="v0.40.3"  # Latest stable NVM version
+readonly LOG_FILE="/tmp/nodejs_install_$(date +%Y%m%d_%H%M%S).log"
 
-# Default installation parameters
-VERSION_TYPE="${1:-lts}"      # lts or latest
-INSTALL_METHOD="${2:-nodesource}"  # nvm or nodesource
+# Installation preferences (can be overridden by environment variables)
+INSTALL_LTS="${INSTALL_LTS:-true}"           # Install LTS by default
+FORCE_REINSTALL="${FORCE_REINSTALL:-false}"  # Force reinstall if already installed
+SILENT_MODE="${SILENT_MODE:-false}"          # Show output by default
+AUTO_YES="${AUTO_YES:-true}"                 # Auto-confirm all prompts
 
-# NVM configuration
-readonly NVM_VERSION="v0.40.2"  # Latest stable version as of 2025
-readonly NVM_INSTALL_URL="https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh"
+#==============================================================================
+# UTILITY FUNCTIONS
+#==============================================================================
 
-# =============================================================================
-# Utility Functions
-# =============================================================================
-
-# Logging function with timestamp and colors
+# Enhanced logging function with timestamp and levels
 log() {
     local level="$1"
-    local message="$2"
+    shift
+    local message="$*"
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-    local log_entry=""
     
-    case "$level" in
-        "INFO")
-            log_entry="${CYAN}[INFO]${NC} ${timestamp}: $message"
+    case "${level}" in
+        "INFO")  echo -e "${CYAN}[${timestamp}] [INFO]${NC} ${message}" | tee -a "${LOG_FILE}" ;;
+        "WARN")  echo -e "${YELLOW}[${timestamp}] [WARN]${NC} ${message}" | tee -a "${LOG_FILE}" ;;
+        "ERROR") echo -e "${RED}[${timestamp}] [ERROR]${NC} ${message}" | tee -a "${LOG_FILE}" ;;
+        "SUCCESS") echo -e "${GREEN}[${timestamp}] [SUCCESS]${NC} ${message}" | tee -a "${LOG_FILE}" ;;
+        "DEBUG") echo -e "${PURPLE}[${timestamp}] [DEBUG]${NC} ${message}" | tee -a "${LOG_FILE}" ;;
+        *) echo -e "${BLUE}[${timestamp}] [LOG]${NC} ${message}" | tee -a "${LOG_FILE}" ;;
+    esac
+}
+
+# Progress indicator for long-running operations
+show_progress() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='|/-\'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
+# Check if script is run with appropriate permissions
+check_permissions() {
+    log "INFO" "Checking script execution permissions..."
+    
+    if [[ $EUID -eq 0 ]]; then
+        log "WARN" "Running as root user. This script should be run as a regular user with sudo privileges."
+        log "WARN" "NVM installation as root is not recommended for security reasons."
+        read -p "Do you want to continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log "ERROR" "Installation cancelled by user."
+            exit 1
+        fi
+    fi
+    
+    # Check sudo access without prompting for password if possible
+    if sudo -n true 2>/dev/null; then
+        log "SUCCESS" "Sudo access confirmed."
+    else
+        log "INFO" "Testing sudo access (password may be required)..."
+        if ! sudo -v; then
+            log "ERROR" "This script requires sudo privileges for system package installation."
+            exit 1
+        fi
+        log "SUCCESS" "Sudo access granted."
+    fi
+}
+
+# Comprehensive system compatibility check
+check_system_compatibility() {
+    log "INFO" "Performing system compatibility checks..."
+    
+    # Check Ubuntu version
+    if [[ -f /etc/os-release ]]; then
+        source /etc/os-release
+        log "INFO" "Detected OS: ${NAME} ${VERSION}"
+        
+        if [[ "${ID}" != "ubuntu" ]]; then
+            log "WARN" "This script is optimized for Ubuntu. Detected: ${ID}"
+            log "WARN" "Proceeding anyway, but some features may not work as expected."
+        fi
+        
+        # Extract major version number
+        local version_id=${VERSION_ID%.*}
+        if [[ "${version_id}" -lt 20 ]]; then
+            log "ERROR" "Ubuntu 20.04 or later is required. Detected: ${VERSION_ID}"
+            exit 1
+        fi
+        
+        if [[ "${VERSION_ID}" == "24.04" ]]; then
+            log "SUCCESS" "Ubuntu 24.04 detected - optimal compatibility."
+        fi
+    else
+        log "WARN" "Cannot determine OS version. Proceeding with installation attempt."
+    fi
+    
+    # Check system architecture
+    local arch=$(uname -m)
+    log "INFO" "System architecture: ${arch}"
+    
+    case "${arch}" in
+        x86_64|amd64)
+            log "SUCCESS" "64-bit x86 architecture detected - fully supported."
             ;;
-        "SUCCESS")
-            log_entry="${GREEN}[SUCCESS]${NC} ${timestamp}: $message"
+        aarch64|arm64)
+            log "SUCCESS" "ARM64 architecture detected - supported."
             ;;
-        "WARNING")
-            log_entry="${YELLOW}[WARNING]${NC} ${timestamp}: $message"
+        armv7l)
+            log "WARN" "ARMv7 detected - limited Node.js version support."
             ;;
-        "ERROR")
-            log_entry="${RED}[ERROR]${NC} ${timestamp}: $message"
-            ;;
-        "STEP")
-            log_entry="${BLUE}[STEP]${NC} ${timestamp}: $message"
+        *)
+            log "WARN" "Unsupported architecture: ${arch}. Installation may fail."
             ;;
     esac
     
-    echo -e "$log_entry"
-    echo "[${level}] ${timestamp}: $message" >> "$LOG_FILE"
-}
-
-# Error handling function
-error_exit() {
-    log "ERROR" "$1"
-    log "ERROR" "Installation failed. Check log file: $LOG_FILE"
-    exit 1
-}
-
-# Check if running as root
-check_root() {
-    if [[ $EUID -eq 0 ]]; then
-        error_exit "This script should not be run as root. Please run as a regular user with sudo privileges."
+    # Check available disk space (require at least 1GB)
+    local available_space=$(df / | awk 'NR==2 {print $4}')
+    local required_space=1048576  # 1GB in KB
+    
+    if [[ ${available_space} -lt ${required_space} ]]; then
+        log "WARN" "Low disk space: $(( available_space / 1024 ))MB available. At least 1GB recommended."
+    else
+        log "SUCCESS" "Sufficient disk space available: $(( available_space / 1024 / 1024 ))GB"
     fi
 }
 
-# Check if user has sudo privileges
-check_sudo() {
-    if ! sudo -n true 2>/dev/null; then
-        log "INFO" "This script requires sudo privileges. You may be prompted for your password."
-        if ! sudo -v; then
-            error_exit "Failed to obtain sudo privileges"
-        fi
-    fi
-}
-
-# Verify Ubuntu version compatibility
-check_ubuntu_version() {
-    if [[ ! -f /etc/os-release ]]; then
-        error_exit "Cannot determine OS version. This script is designed for Ubuntu 24.04"
+# Install essential system dependencies
+install_dependencies() {
+    log "INFO" "Installing essential system dependencies..."
+    
+    # Update package list
+    log "INFO" "Updating package repository lists..."
+    if ! sudo apt-get update -qq > /dev/null 2>&1; then
+        log "ERROR" "Failed to update package lists. Check your internet connection."
+        exit 1
     fi
     
-    source /etc/os-release
-    
-    if [[ "$ID" != "ubuntu" ]]; then
-        error_exit "This script is designed for Ubuntu. Detected OS: $ID"
-    fi
-    
-    if [[ "$VERSION_ID" != "$REQUIRED_UBUNTU_VERSION" ]]; then
-        log "WARNING" "This script is optimized for Ubuntu $REQUIRED_UBUNTU_VERSION. Detected: $VERSION_ID"
-        log "WARNING" "Continuing anyway, but some features may not work as expected."
-    fi
-    
-    log "SUCCESS" "Ubuntu version check passed: $VERSION_ID"
-}
-
-# Update system packages
-update_system() {
-    log "STEP" "Updating system packages"
-    
-    # Update package lists
-    if ! sudo apt update -qq; then
-        error_exit "Failed to update package lists"
-    fi
-    
-    # Upgrade existing packages non-interactively
-    if ! sudo DEBIAN_FRONTEND=noninteractive apt upgrade -y -qq; then
-        error_exit "Failed to upgrade system packages"
-    fi
-    
-    log "SUCCESS" "System packages updated successfully"
-}
-
-# Install prerequisite packages
-install_prerequisites() {
-    log "STEP" "Installing prerequisite packages"
-    
-    local packages=(
-        "curl"
-        "wget"
-        "ca-certificates"
-        "gnupg"
-        "lsb-release"
-        "apt-transport-https"
-        "software-properties-common"
-        "build-essential"
+    # Essential packages for Node.js development and NVM
+    local dependencies=(
+        "curl"              # Required for NVM installation and npm registry access
+        "wget"              # Alternative download tool
+        "git"               # Required for NVM and version control
+        "build-essential"   # Compilation tools for native modules
+        "libssl-dev"        # SSL/TLS library for secure connections
+        "ca-certificates"   # Certificate authorities for HTTPS
+        "gnupg"             # GNU Privacy Guard for package verification
+        "lsb-release"       # Linux Standard Base info
+        "software-properties-common"  # Manage PPAs and repositories
     )
     
-    for package in "${packages[@]}"; do
-        if ! dpkg -l | grep -q "^ii  $package "; then
-            log "INFO" "Installing $package"
-            if ! sudo DEBIAN_FRONTEND=noninteractive apt install -y -qq "$package"; then
-                error_exit "Failed to install $package"
-            fi
-        else
-            log "INFO" "$package is already installed"
+    log "INFO" "Installing required packages: ${dependencies[*]}"
+    
+    # Use DEBIAN_FRONTEND=noninteractive to prevent interactive prompts
+    export DEBIAN_FRONTEND=noninteractive
+    
+    if sudo apt-get install -y --no-install-recommends "${dependencies[@]}" >> "${LOG_FILE}" 2>&1; then
+        log "SUCCESS" "All dependencies installed successfully."
+    else
+        log "ERROR" "Failed to install some dependencies. Check ${LOG_FILE} for details."
+        exit 1
+    fi
+    
+    # Verify critical dependencies
+    for cmd in curl git; do
+        if ! command -v "${cmd}" &> /dev/null; then
+            log "ERROR" "Critical dependency '${cmd}' is not available after installation."
+            exit 1
         fi
     done
     
-    log "SUCCESS" "All prerequisite packages installed"
+    log "SUCCESS" "All critical dependencies verified."
 }
 
 # Remove existing Node.js installations to prevent conflicts
 cleanup_existing_nodejs() {
-    log "STEP" "Cleaning up existing Node.js installations"
+    log "INFO" "Checking for existing Node.js installations..."
     
-    # Remove apt-installed Node.js
-    if dpkg -l | grep -q nodejs; then
-        log "INFO" "Removing existing Node.js installation via apt"
-        sudo apt remove --purge -y nodejs npm 2>/dev/null || true
-        sudo apt autoremove -y 2>/dev/null || true
+    # Check for system-installed Node.js
+    if command -v node &> /dev/null || command -v nodejs &> /dev/null; then
+        local existing_version=""
+        if command -v node &> /dev/null; then
+            existing_version=$(node --version 2>/dev/null || echo "unknown")
+        elif command -v nodejs &> /dev/null; then
+            existing_version=$(nodejs --version 2>/dev/null || echo "unknown")
+        fi
+        
+        log "WARN" "Existing Node.js installation detected: ${existing_version}"
+        
+        if [[ "${FORCE_REINSTALL}" == "true" ]]; then
+            log "INFO" "Force reinstall enabled. Removing existing Node.js installations..."
+            
+            # Remove system packages
+            sudo apt-get remove --purge -y nodejs npm node 2>/dev/null || true
+            sudo apt-get autoremove -y 2>/dev/null || true
+            
+            # Remove common installation directories
+            sudo rm -rf /usr/local/{lib/node{,_modules},bin,share/man}/{npm*,node*} 2>/dev/null || true
+            sudo rm -rf /usr/local/bin/npm /usr/local/share/man/man1/node* 2>/dev/null || true
+            sudo rm -rf /usr/local/lib/dtrace/node.d 2>/dev/null || true
+            sudo rm -rf ~/.npm 2>/dev/null || true
+            
+            log "SUCCESS" "Existing Node.js installations removed."
+        else
+            log "WARN" "Existing installation found. Use FORCE_REINSTALL=true to remove it."
+            log "WARN" "Continuing with NVM installation - it will manage versions independently."
+        fi
+    else
+        log "SUCCESS" "No existing Node.js installations detected."
     fi
     
-    # Clean up any NodeSource repositories
-    if [[ -f /etc/apt/sources.list.d/nodesource.list ]]; then
-        log "INFO" "Removing existing NodeSource repository"
-        sudo rm -f /etc/apt/sources.list.d/nodesource.list
+    # Check for existing NVM installation
+    if [[ -d "${HOME}/.nvm" ]]; then
+        log "WARN" "Existing NVM installation found at ${HOME}/.nvm"
+        
+        if [[ "${FORCE_REINSTALL}" == "true" ]]; then
+            log "INFO" "Removing existing NVM installation..."
+            rm -rf "${HOME}/.nvm"
+            log "SUCCESS" "Existing NVM installation removed."
+        else
+            log "INFO" "Updating existing NVM installation..."
+        fi
     fi
-    
-    # Remove NodeSource GPG key
-    if [[ -f /etc/apt/keyrings/nodesource.gpg ]]; then
-        sudo rm -f /etc/apt/keyrings/nodesource.gpg
-    fi
-    
-    log "SUCCESS" "Cleanup completed"
 }
 
-# Get the latest Node.js version dynamically
-get_latest_nodejs_version() {
-    log "INFO" "Detecting latest Node.js versions"
+# Install or update NVM (Node Version Manager)
+install_nvm() {
+    log "INFO" "Installing NVM (Node Version Manager) version ${NVM_VERSION}..."
     
-    local latest_version
-    local lts_version
+    # Download and install NVM using the official installation script
+    local nvm_install_url="https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh"
     
-    # Get latest version from Node.js API
-    latest_version=$(curl -s https://nodejs.org/dist/index.json | grep -o '"version":"[^"]*' | head -n1 | sed 's/"version":"v//')
+    log "INFO" "Downloading NVM installation script from: ${nvm_install_url}"
     
-    # Get LTS version from Node.js API
-    lts_version=$(curl -s https://nodejs.org/dist/index.json | grep -A1 '"lts":' | grep -v 'false' | head -n1 | grep -o '"version":"[^"]*' | sed 's/"version":"v//')
+    # Download with retries and proper error handling
+    local max_retries=3
+    local retry_count=0
     
-    if [[ -z "$latest_version" || -z "$lts_version" ]]; then
-        error_exit "Failed to detect Node.js versions from API"
-    fi
+    while [[ ${retry_count} -lt ${max_retries} ]]; do
+        if curl -o- "${nvm_install_url}" | bash >> "${LOG_FILE}" 2>&1; then
+            log "SUCCESS" "NVM installation script executed successfully."
+            break
+        else
+            retry_count=$((retry_count + 1))
+            log "WARN" "NVM installation attempt ${retry_count} failed. Retrying..."
+            sleep 2
+        fi
+        
+        if [[ ${retry_count} -eq ${max_retries} ]]; then
+            log "ERROR" "Failed to install NVM after ${max_retries} attempts."
+            exit 1
+        fi
+    done
     
-    log "INFO" "Latest Node.js version: v$latest_version"
-    log "INFO" "Latest LTS Node.js version: v$lts_version"
+    # Set up NVM environment for current session
+    export NVM_DIR="${HOME}/.nvm"
     
-    if [[ "$VERSION_TYPE" == "latest" ]]; then
-        echo "$latest_version"
+    # Source NVM script
+    if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
+        source "${NVM_DIR}/nvm.sh"
+        log "SUCCESS" "NVM environment loaded successfully."
     else
-        echo "$lts_version"
+        log "ERROR" "NVM installation failed - nvm.sh not found."
+        exit 1
     fi
-}
-
-# Install Node.js via NodeSource repository
-install_via_nodesource() {
-    log "STEP" "Installing Node.js via NodeSource repository"
-    
-    # Get version information once and store it
-    log "INFO" "Detecting latest Node.js versions"
-    local latest_version
-    local lts_version
-    
-    # Get latest version from Node.js API
-    latest_version=$(curl -s https://nodejs.org/dist/index.json | grep -o '"version":"[^"]*' | head -n1 | sed 's/"version":"v//')
-    
-    # Get LTS version from Node.js API  
-    lts_version=$(curl -s https://nodejs.org/dist/index.json | grep -A1 '"lts":' | grep -v 'false' | head -n1 | grep -o '"version":"[^"]*' | sed 's/"version":"v//')
-    
-    if [[ -z "$latest_version" || -z "$lts_version" ]]; then
-        error_exit "Failed to detect Node.js versions from API"
-    fi
-    
-    log "INFO" "Latest Node.js version: v$latest_version"
-    log "INFO" "Latest LTS Node.js version: v$lts_version"
-    
-    local target_version
-    if [[ "$VERSION_TYPE" == "latest" ]]; then
-        target_version="$latest_version"
-    else
-        target_version="$lts_version"
-    fi
-    
-    local major_version
-    major_version=$(echo "$target_version" | cut -d. -f1)
-    
-    log "INFO" "Target Node.js version: v$target_version (major: $major_version)"
-    
-    # Download and execute NodeSource setup script
-    log "INFO" "Setting up NodeSource repository for Node.js $major_version"
-    
-    local setup_script_url="https://deb.nodesource.com/setup_${major_version}.x"
-    
-    if ! curl -fsSL "$setup_script_url" | sudo -E bash -; then
-        error_exit "Failed to setup NodeSource repository"
-    fi
-    
-    # Update package lists after adding repository
-    if ! sudo apt update -qq; then
-        error_exit "Failed to update package lists after adding NodeSource repository"
-    fi
-    
-    # Install Node.js and npm
-    log "INFO" "Installing Node.js and npm"
-    if ! sudo DEBIAN_FRONTEND=noninteractive apt install -y -qq nodejs; then
-        error_exit "Failed to install Node.js and npm"
-    fi
-    
-    log "SUCCESS" "Node.js installed successfully via NodeSource"
-}
-    
-# Install Node.js via NVM
-install_via_nvm() {
-    log "STEP" "Installing Node.js via NVM (Node Version Manager)"
-    
-    # Get version information once and store it
-    log "INFO" "Detecting latest Node.js versions"
-    local latest_version
-    local lts_version
-    
-    # Get latest version from Node.js API
-    latest_version=$(curl -s https://nodejs.org/dist/index.json | grep -o '"version":"[^"]*' | head -n1 | sed 's/"version":"v//')
-    
-    # Get LTS version from Node.js API
-    lts_version=$(curl -s https://nodejs.org/dist/index.json | grep -A1 '"lts":' | grep -v 'false' | head -n1 | grep -o '"version":"[^"]*' | sed 's/"version":"v//')
-    
-    if [[ -z "$latest_version" || -z "$lts_version" ]]; then
-        error_exit "Failed to detect Node.js versions from API"
-    fi
-    
-    log "INFO" "Latest Node.js version: v$latest_version"
-    log "INFO" "Latest LTS Node.js version: v$lts_version"
-    
-    local target_version
-    if [[ "$VERSION_TYPE" == "latest" ]]; then
-        target_version="$latest_version"
-    else
-        target_version="$lts_version"
-    fi
-    
-    log "INFO" "Target Node.js version: v$target_version"
-    
-    # Download and install NVM
-    log "INFO" "Downloading and installing NVM $NVM_VERSION"
-    
-    export NVM_DIR="$HOME/.nvm"
-    
-    # Remove existing NVM installation if present
-    if [[ -d "$NVM_DIR" ]]; then
-        log "INFO" "Removing existing NVM installation"
-        rm -rf "$NVM_DIR"
-    fi
-    
-    # Download and install NVM
-    if ! curl -o- "$NVM_INSTALL_URL" | bash; then
-        error_exit "Failed to install NVM"
-    fi
-    
-    # Load NVM into current session
-    [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
-    [[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
     
     # Verify NVM installation
-    if ! command -v nvm &> /dev/null; then
-        error_exit "NVM installation failed - command not found"
-    fi
-    
-    log "SUCCESS" "NVM installed successfully"
-    
-    # Install Node.js using NVM
-    log "INFO" "Installing Node.js v$target_version using NVM"
-    
-    if [[ "$VERSION_TYPE" == "latest" ]]; then
-        if ! nvm install node; then
-            error_exit "Failed to install latest Node.js via NVM"
-        fi
-        if ! nvm use node; then
-            error_exit "Failed to use latest Node.js via NVM"
-        fi
-        if ! nvm alias default node; then
-            error_exit "Failed to set default Node.js version via NVM"
-        fi
+    if command -v nvm &> /dev/null; then
+        local nvm_version=$(nvm --version)
+        log "SUCCESS" "NVM ${nvm_version} installed and ready to use."
     else
-        # Install LTS version
-        if ! nvm install --lts; then
-            error_exit "Failed to install LTS Node.js via NVM"
-        fi
-        if ! nvm use --lts; then
-            error_exit "Failed to use LTS Node.js via NVM"
-        fi
-        if ! nvm alias default lts/*; then
-            error_exit "Failed to set default Node.js version via NVM"
-        fi
+        log "ERROR" "NVM installation verification failed."
+        exit 1
     fi
     
-    log "SUCCESS" "Node.js installed successfully via NVM"
+    # Load bash completion if available
+    if [[ -s "${NVM_DIR}/bash_completion" ]]; then
+        source "${NVM_DIR}/bash_completion"
+        log "INFO" "NVM bash completion loaded."
+    fi
 }
 
-# Configure shell profile for persistent environment
-configure_profile() {
-    log "STEP" "Configuring shell profile for persistent environment"
+# Configure shell profile for automatic NVM loading
+configure_shell_profile() {
+    log "INFO" "Configuring shell profile for automatic NVM loading..."
     
-    local shell_name
-    shell_name=$(basename "$SHELL")
-    local profile_file
+    # Detect current shell
+    local current_shell=$(basename "${SHELL}")
+    local profile_files=()
     
-    case "$shell_name" in
-        "bash")
-            profile_file="$HOME/.bashrc"
+    case "${current_shell}" in
+        bash)
+            profile_files=("${HOME}/.bashrc" "${HOME}/.bash_profile" "${HOME}/.profile")
             ;;
-        "zsh")
-            profile_file="$HOME/.zshrc"
+        zsh)
+            profile_files=("${HOME}/.zshrc" "${HOME}/.zprofile")
+            ;;
+        fish)
+            # Fish shell requires different setup - skip for now
+            log "WARN" "Fish shell detected. Manual configuration may be required."
+            return 0
             ;;
         *)
-            profile_file="$HOME/.profile"
+            profile_files=("${HOME}/.profile")
+            log "WARN" "Unknown shell: ${current_shell}. Using .profile for configuration."
             ;;
     esac
     
-    log "INFO" "Detected shell: $shell_name, using profile: $profile_file"
-    
-    if [[ "$INSTALL_METHOD" == "nvm" ]]; then
-        # NVM configuration
-        local nvm_config='
-# NVM Configuration - Added by Node.js installer script
+    # NVM configuration lines
+    local nvm_config='
+# NVM (Node Version Manager) Configuration
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion'
+    
+    # Add configuration to appropriate profile files
+    for profile_file in "${profile_files[@]}"; do
+        if [[ -f "${profile_file}" ]] || [[ "${profile_file}" == "${HOME}/.bashrc" ]]; then
+            # Create file if it doesn't exist (especially for .bashrc)
+            touch "${profile_file}"
+            
+            # Check if NVM config already exists
+            if ! grep -q "NVM_DIR" "${profile_file}" 2>/dev/null; then
+                echo "${nvm_config}" >> "${profile_file}"
+                log "SUCCESS" "NVM configuration added to ${profile_file}"
+            else
+                log "INFO" "NVM configuration already exists in ${profile_file}"
+            fi
+        fi
+    done
+    
+    log "SUCCESS" "Shell profile configuration completed."
+}
+
+# Determine which Node.js version to install
+determine_nodejs_version() {
+    log "INFO" "Determining optimal Node.js version to install..."
+    
+    # Refresh NVM's remote version list
+    log "INFO" "Refreshing Node.js version list from remote..."
+    nvm ls-remote --no-colors > /tmp/nvm_versions.txt 2>&1 || {
+        log "ERROR" "Failed to fetch Node.js version list. Check internet connection."
+        exit 1
+    }
+    
+    if [[ "${INSTALL_LTS}" == "true" ]]; then
+        # Get latest LTS version
+        local lts_version=$(nvm ls-remote --lts --no-colors 2>/dev/null | tail -1 | awk '{print $1}' | sed 's/^v//')
         
-        if ! grep -q "NVM Configuration" "$profile_file" 2>/dev/null; then
-            echo "$nvm_config" >> "$profile_file"
-            log "SUCCESS" "NVM configuration added to $profile_file"
+        if [[ -n "${lts_version}" ]]; then
+            NODE_VERSION="lts/*"
+            log "SUCCESS" "Latest LTS version determined: ${lts_version}"
         else
-            log "INFO" "NVM configuration already exists in $profile_file"
+            log "ERROR" "Failed to determine latest LTS version."
+            exit 1
         fi
     else
-        # NodeSource configuration (Node.js should be in PATH automatically)
-        log "INFO" "Node.js installed via NodeSource - no additional profile configuration needed"
-    fi
-    
-    # Add npm global bin to PATH if not already present
-    local npm_global_bin
-    if command -v npm &> /dev/null; then
-        npm_global_bin=$(npm config get prefix 2>/dev/null)/bin
-        if [[ -n "$npm_global_bin" ]] && [[ "$PATH" != *"$npm_global_bin"* ]]; then
-            echo "export PATH=\"$npm_global_bin:\$PATH\"" >> "$profile_file"
-            log "SUCCESS" "npm global bin path added to $profile_file"
+        # Get latest stable version
+        local latest_version=$(nvm ls-remote --no-colors 2>/dev/null | tail -1 | awk '{print $1}' | sed 's/^v//')
+        
+        if [[ -n "${latest_version}" ]]; then
+            NODE_VERSION="node"
+            log "SUCCESS" "Latest stable version determined: ${latest_version}"
+        else
+            log "ERROR" "Failed to determine latest stable version."
+            exit 1
         fi
     fi
+    
+    # Clean up temporary file
+    rm -f /tmp/nvm_versions.txt
 }
 
-# Verify installation success
+# Install Node.js using NVM
+install_nodejs() {
+    log "INFO" "Installing Node.js version: ${NODE_VERSION}"
+    
+    # Install Node.js with progress indication
+    log "INFO" "Downloading and installing Node.js (this may take a few minutes)..."
+    
+    # Capture both stdout and stderr for better error reporting
+    if nvm install "${NODE_VERSION}" >> "${LOG_FILE}" 2>&1; then
+        log "SUCCESS" "Node.js installation completed successfully."
+    else
+        log "ERROR" "Node.js installation failed. Check ${LOG_FILE} for details."
+        exit 1
+    fi
+    
+    # Set the installed version as default
+    if nvm alias default "${NODE_VERSION}" >> "${LOG_FILE}" 2>&1; then
+        log "SUCCESS" "Node.js version set as default."
+    else
+        log "WARN" "Failed to set Node.js as default version."
+    fi
+    
+    # Use the installed version immediately
+    if nvm use "${NODE_VERSION}" >> "${LOG_FILE}" 2>&1; then
+        log "SUCCESS" "Switched to Node.js version: ${NODE_VERSION}"
+    else
+        log "ERROR" "Failed to switch to installed Node.js version."
+        exit 1
+    fi
+}
+
+# Verify the installation and display version information
 verify_installation() {
-    log "STEP" "Verifying installation"
+    log "INFO" "Verifying Node.js installation..."
     
-    # Source the profile to ensure environment is loaded
-    if [[ "$INSTALL_METHOD" == "nvm" ]]; then
-        export NVM_DIR="$HOME/.nvm"
-        [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+    # Ensure we're using the NVM-installed Node.js
+    source "${NVM_DIR}/nvm.sh"
+    nvm use "${NODE_VERSION}" > /dev/null 2>&1
+    
+    # Get version information
+    local node_version=""
+    local npm_version=""
+    local npx_version=""
+    
+    if command -v node &> /dev/null; then
+        node_version=$(node --version 2>/dev/null || echo "Not available")
+        log "SUCCESS" "Node.js version: ${node_version}"
+    else
+        log "ERROR" "Node.js command not found after installation."
+        return 1
     fi
     
-    # Check Node.js
-    if ! command -v node &> /dev/null; then
-        error_exit "Node.js installation verification failed - command not found"
+    if command -v npm &> /dev/null; then
+        npm_version=$(npm --version 2>/dev/null || echo "Not available")
+        log "SUCCESS" "npm version: ${npm_version}"
+    else
+        log "ERROR" "npm command not found after installation."
+        return 1
     fi
     
-    local node_version
-    node_version=$(node --version)
-    log "SUCCESS" "Node.js installed: $node_version"
-    
-    # Check npm
-    if ! command -v npm &> /dev/null; then
-        error_exit "npm installation verification failed - command not found"
+    if command -v npx &> /dev/null; then
+        npx_version=$(npx --version 2>/dev/null || echo "Not available")
+        log "SUCCESS" "npx version: ${npx_version}"
+    else
+        log "WARN" "npx command not found - may need to update npm."
     fi
-    
-    local npm_version
-    npm_version=$(npm --version)
-    log "SUCCESS" "npm installed: v$npm_version"
-    
-    # Check npx (comes with npm)
-    if ! command -v npx &> /dev/null; then
-        error_exit "npx installation verification failed - command not found"
-    fi
-    
-    local npx_version
-    npx_version=$(npx --version)
-    log "SUCCESS" "npx installed: v$npx_version"
     
     # Display installation summary
-    echo ""
-    echo -e "${GREEN}=== INSTALLATION SUMMARY ===${NC}"
-    echo -e "${CYAN}Node.js Version:${NC} $node_version"
-    echo -e "${CYAN}npm Version:${NC} v$npm_version"
-    echo -e "${CYAN}npx Version:${NC} v$npx_version"
-    echo -e "${CYAN}Installation Method:${NC} $INSTALL_METHOD"
-    echo -e "${CYAN}Version Type:${NC} $VERSION_TYPE"
-    echo -e "${CYAN}Log File:${NC} $LOG_FILE"
-    echo ""
-}
-
-# Display usage information
-usage() {
-    echo "Usage: $0 [VERSION_TYPE] [INSTALL_METHOD]"
-    echo ""
-    echo "VERSION_TYPE:"
-    echo "  lts      Install the latest LTS (Long Term Support) version (default)"
-    echo "  latest   Install the latest current version"
-    echo ""
-    echo "INSTALL_METHOD:"
-    echo "  nodesource  Install via NodeSource repository (default)"
-    echo "  nvm         Install via Node Version Manager (NVM)"
-    echo ""
-    echo "Examples:"
-    echo "  $0                    # Install LTS via NodeSource"
-    echo "  $0 lts               # Install LTS via NodeSource"
-    echo "  $0 latest nvm        # Install latest via NVM"
-    echo "  $0 lts nvm           # Install LTS via NVM"
-    echo ""
-}
-
-# Validate command line arguments
-validate_arguments() {
-    if [[ "$VERSION_TYPE" != "lts" && "$VERSION_TYPE" != "latest" ]]; then
-        log "ERROR" "Invalid version type: $VERSION_TYPE"
-        usage
-        exit 1
+    echo
+    echo "======================================================================"
+    echo -e "${GREEN}        NODE.JS INSTALLATION COMPLETED SUCCESSFULLY${NC}"
+    echo "======================================================================"
+    echo -e "${CYAN}Node.js Version:${NC} ${node_version}"
+    echo -e "${CYAN}npm Version:${NC}     ${npm_version}"
+    echo -e "${CYAN}npx Version:${NC}     ${npx_version}"
+    echo -e "${CYAN}Installation Path:${NC} ${HOME}/.nvm"
+    echo -e "${CYAN}Log File:${NC}       ${LOG_FILE}"
+    echo "======================================================================"
+    echo
+    
+    # Test basic functionality
+    log "INFO" "Testing Node.js functionality..."
+    
+    if echo "console.log('Node.js is working correctly!');" | node > /dev/null 2>&1; then
+        log "SUCCESS" "Node.js functionality test passed."
+    else
+        log "ERROR" "Node.js functionality test failed."
+        return 1
     fi
     
-    if [[ "$INSTALL_METHOD" != "nvm" && "$INSTALL_METHOD" != "nodesource" ]]; then
-        log "ERROR" "Invalid installation method: $INSTALL_METHOD"
-        usage
-        exit 1
+    # Display usage instructions
+    echo -e "${YELLOW}USAGE INSTRUCTIONS:${NC}"
+    echo "• Open a new terminal session or run: source ~/.bashrc"
+    echo "• Check available Node.js versions: nvm ls-remote"
+    echo "• Install another version: nvm install <version>"
+    echo "• Switch between versions: nvm use <version>"
+    echo "• Set default version: nvm alias default <version>"
+    echo "• Current version: nvm current"
+    echo
+    
+    return 0
+}
+
+# Configure npm for optimal performance and security
+configure_npm() {
+    log "INFO" "Configuring npm for optimal performance and security..."
+    
+    # Ensure we're using the NVM-installed npm
+    source "${NVM_DIR}/nvm.sh"
+    nvm use "${NODE_VERSION}" > /dev/null 2>&1
+    
+    # Configure npm settings
+    local npm_configs=(
+        "fund=false"                    # Disable funding messages
+        "audit-level=moderate"          # Set audit level
+        "save-exact=true"              # Save exact versions in package.json
+        "engine-strict=true"           # Enforce engine requirements
+        "progress=true"                # Show progress indicators
+        "registry=https://registry.npmjs.org/"  # Ensure official registry
+    )
+    
+    for config in "${npm_configs[@]}"; do
+        if npm config set "${config}" >> "${LOG_FILE}" 2>&1; then
+            log "INFO" "npm config set: ${config}"
+        else
+            log "WARN" "Failed to set npm config: ${config}"
+        fi
+    done
+    
+    # Update npm to latest version
+    log "INFO" "Updating npm to the latest version..."
+    if npm install -g npm@latest >> "${LOG_FILE}" 2>&1; then
+        local new_npm_version=$(npm --version)
+        log "SUCCESS" "npm updated to version: ${new_npm_version}"
+    else
+        log "WARN" "Failed to update npm to latest version."
     fi
     
-    log "INFO" "Installation parameters: Version=$VERSION_TYPE, Method=$INSTALL_METHOD"
+    log "SUCCESS" "npm configuration completed."
 }
 
 # Main installation function
 main() {
-    # Display header
-    echo -e "${BLUE}"
-    echo "============================================================================="
-    echo "  Automated Node.js, npm & npx Installation Script for Ubuntu 24.04"
-    echo "============================================================================="
-    echo -e "${NC}"
+    echo
+    echo "======================================================================"
+    echo -e "${BLUE}       ${SCRIPT_NAME} v${SCRIPT_VERSION}${NC}"
+    echo "======================================================================"
+    echo -e "${CYAN}Target System:${NC} Ubuntu 24.04"
+    echo -e "${CYAN}Installation Method:${NC} NVM (Node Version Manager)"
+    echo -e "${CYAN}Version Strategy:${NC} $([ "${INSTALL_LTS}" == "true" ] && echo "Latest LTS" || echo "Latest Stable")"
+    echo -e "${CYAN}Log File:${NC} ${LOG_FILE}"
+    echo "======================================================================"
+    echo
     
-    # Initialize logging
-    log "INFO" "Starting Node.js installation script"
-    log "INFO" "Log file: $LOG_FILE"
+    # Create log file with header
+    cat > "${LOG_FILE}" << EOF
+====================================================================
+Node.js Installation Script Log
+Date: $(date)
+User: $(whoami)
+System: $(uname -a)
+====================================================================
+
+EOF
     
-    # Validate arguments
-    validate_arguments
+    log "INFO" "Starting Node.js installation process..."
     
-    # Perform pre-installation checks
-    check_root
-    check_sudo
-    check_ubuntu_version
-    
-    # Prepare system
-    update_system
-    install_prerequisites
+    # Execute installation steps
+    check_permissions
+    check_system_compatibility
+    install_dependencies
     cleanup_existing_nodejs
+    install_nvm
+    configure_shell_profile
+    determine_nodejs_version
+    install_nodejs
+    configure_npm
     
-    # Install Node.js based on selected method
-    if [[ "$INSTALL_METHOD" == "nvm" ]]; then
-        install_via_nvm
+    # Final verification
+    if verify_installation; then
+        log "SUCCESS" "Node.js installation process completed successfully!"
+        echo -e "${GREEN}Installation completed! Please open a new terminal session to start using Node.js.${NC}"
+        exit 0
     else
-        install_via_nodesource
+        log "ERROR" "Installation verification failed."
+        exit 1
     fi
-    
-    # Post-installation configuration
-    configure_profile
-    verify_installation
-    
-    # Final message
-    echo -e "${GREEN}"
-    echo "============================================================================="
-    echo "  Installation completed successfully!"
-    echo "============================================================================="
-    echo -e "${NC}"
-    echo ""
-    echo "To start using Node.js in your current terminal session:"
-    if [[ "$INSTALL_METHOD" == "nvm" ]]; then
-        echo -e "${YELLOW}source ~/.nvm/nvm.sh${NC}"
-    fi
-    echo -e "${YELLOW}node --version${NC}"
-    echo -e "${YELLOW}npm --version${NC}"
-    echo ""
-    echo "For new terminal sessions, Node.js will be available automatically."
-    echo ""
-    
-    log "SUCCESS" "Node.js installation script completed successfully"
 }
 
-# Handle script interruption
-trap 'error_exit "Script interrupted by user"' INT TERM
+# Error handler
+error_handler() {
+    local line_number=$1
+    log "ERROR" "Script failed at line ${line_number}"
+    log "ERROR" "Installation process terminated unexpectedly."
+    echo -e "${RED}Installation failed. Check ${LOG_FILE} for details.${NC}"
+    exit 1
+}
 
-# Execute main function
-main "$@"
+# Set up error handling
+trap 'error_handler ${LINENO}' ERR
+
+# Handle script interruption
+cleanup_on_interrupt() {
+    log "WARN" "Installation interrupted by user."
+    echo -e "${YELLOW}Installation cancelled.${NC}"
+    exit 130
+}
+
+trap cleanup_on_interrupt SIGINT SIGTERM
+
+#==============================================================================
+# SCRIPT EXECUTION
+#==============================================================================
+
+# Parse command line arguments (if any)
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --lts)
+            INSTALL_LTS="true"
+            shift
+            ;;
+        --latest)
+            INSTALL_LTS="false"
+            shift
+            ;;
+        --force)
+            FORCE_REINSTALL="true"
+            shift
+            ;;
+        --silent)
+            SILENT_MODE="true"
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: $0 [OPTIONS]"
+            echo "Options:"
+            echo "  --lts      Install latest LTS version (default)"
+            echo "  --latest   Install latest stable version"
+            echo "  --force    Force reinstall if already installed"
+            echo "  --silent   Run in silent mode"
+            echo "  --help     Show this help message"
+            exit 0
+            ;;
+        *)
+            log "WARN" "Unknown option: $1"
+            shift
+            ;;
+    esac
+done
+
+# Run main installation function
+main
