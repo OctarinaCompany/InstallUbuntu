@@ -21,8 +21,15 @@ then
 pwsh
 ```
 
-## Python,pip & uvx 
+## Python, pip & uvx 
 
 ```powershell
 curl -fsSL https://raw.githubusercontent.com/OctarinaCompany/InstallUbuntu/refs/heads/main/scripts/install_python.sh | bash
+```
+
+## Nodejs, npm & npx
+
+
+```powershell
+curl -fsSL https://raw.githubusercontent.com/OctarinaCompany/InstallUbuntu/refs/heads/main/scripts/install_nodejs.sh | bash
 ```
