@@ -165,9 +165,9 @@ install_nerd_font() {
     local font_dir="$HOME/.local/share/fonts"
     mkdir -p "$font_dir"
     
-    # Download and install MesloLGM Nerd Font
-    local font_url="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/${NERD_FONT_NAME}.zip"
-    local temp_font_file="/tmp/${NERD_FONT_NAME}.zip"
+    # Download and install Meslo Nerd Font (note: the zip is called "Meslo.zip" not "MesloLGM.zip")
+    local font_url="https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/Meslo.zip"
+    local temp_font_file="/tmp/Meslo.zip"
     
     if wget -q "$font_url" -O "$temp_font_file"; then
         unzip -o -q "$temp_font_file" -d "$font_dir" "*.ttf" 2>/dev/null || true
@@ -271,6 +271,8 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
 # Set console encoding to UTF-8
 [console]::InputEncoding = [console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
+# Display welcome message
+Write-Host "PowerShell with oh-my-posh loaded successfully!" -ForegroundColor Green
 EOF
     
     log_success "PowerShell profile configured"
