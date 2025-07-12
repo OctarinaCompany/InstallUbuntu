@@ -12,7 +12,7 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/vatsan-madhavan/NerdFo
 ## Powershell on Ubuntu
 
 ```powershell
-curl -fsSL https://raw.githubusercontent.com/OctarinaCompany/InstallUbuntu/refs/heads/main/scripts/install_powershell.sh | bash
+curl -H 'Cache-Control: no-cache' -fsSL https://raw.githubusercontent.com/OctarinaCompany/InstallUbuntu/refs/heads/main/scripts/install_powershell.sh | bash
 ```
 
 then 
@@ -24,12 +24,11 @@ pwsh
 ## Python, pip & uvx 
 
 ```powershell
-curl -fsSL https://raw.githubusercontent.com/OctarinaCompany/InstallUbuntu/refs/heads/main/scripts/install_python.sh | bash
+curl -H 'Cache-Control: no-cache' -fsSL https://raw.githubusercontent.com/OctarinaCompany/InstallUbuntu/refs/heads/main/scripts/install_python.sh | bash
 ```
 
 ## Nodejs, npm & npx
 
-
 ```powershell
-curl -fsSL https://raw.githubusercontent.com/OctarinaCompany/InstallUbuntu/refs/heads/main/scripts/install_nodejs.sh | bash
+curl -H 'Cache-Control: no-cache' -fsSL https://raw.githubusercontent.com/OctarinaCompany/InstallUbuntu/refs/heads/main/scripts/install_nodejs.sh | bash
 ```
