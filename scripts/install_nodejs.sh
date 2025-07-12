@@ -61,24 +61,28 @@ log() {
     local level="$1"
     local message="$2"
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local log_entry=""
     
     case "$level" in
         "INFO")
-            echo -e "${CYAN}[INFO]${NC} ${timestamp}: $message" | tee -a "$LOG_FILE"
+            log_entry="${CYAN}[INFO]${NC} ${timestamp}: $message"
             ;;
         "SUCCESS")
-            echo -e "${GREEN}[SUCCESS]${NC} ${timestamp}: $message" | tee -a "$LOG_FILE"
+            log_entry="${GREEN}[SUCCESS]${NC} ${timestamp}: $message"
             ;;
         "WARNING")
-            echo -e "${YELLOW}[WARNING]${NC} ${timestamp}: $message" | tee -a "$LOG_FILE"
+            log_entry="${YELLOW}[WARNING]${NC} ${timestamp}: $message"
             ;;
         "ERROR")
-            echo -e "${RED}[ERROR]${NC} ${timestamp}: $message" | tee -a "$LOG_FILE"
+            log_entry="${RED}[ERROR]${NC} ${timestamp}: $message"
             ;;
         "STEP")
-            echo -e "${BLUE}[STEP]${NC} ${timestamp}: $message" | tee -a "$LOG_FILE"
+            log_entry="${BLUE}[STEP]${NC} ${timestamp}: $message"
             ;;
     esac
+    
+    echo -e "$log_entry"
+    echo "[${level}] ${timestamp}: $message" >> "$LOG_FILE"
 }
 
 # Error handling function
