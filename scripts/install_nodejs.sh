@@ -227,8 +227,31 @@ get_latest_nodejs_version() {
 install_via_nodesource() {
     log "STEP" "Installing Node.js via NodeSource repository"
     
+    # Get version information once and store it
+    log "INFO" "Detecting latest Node.js versions"
+    local latest_version
+    local lts_version
+    
+    # Get latest version from Node.js API
+    latest_version=$(curl -s https://nodejs.org/dist/index.json | grep -o '"version":"[^"]*' | head -n1 | sed 's/"version":"v//')
+    
+    # Get LTS version from Node.js API
+    lts_version=$(curl -s https://nodejs.org/dist/index.json | grep -A1 '"lts":' | grep -v 'false' | head -n1 | grep -o '"version":"[^"]*' | sed 's/"version":"v//')
+    
+    if [[ -z "$latest_version" || -z "$lts_version" ]]; then
+        error_exit "Failed to detect Node.js versions from API"
+    fi
+    
+    log "INFO" "Latest Node.js version: v$latest_version"
+    log "INFO" "Latest LTS Node.js version: v$lts_version"
+    
     local target_version
-    target_version=$(get_latest_nodejs_version)
+    if [[ "$VERSION_TYPE" == "latest" ]]; then
+        target_version="$latest_version"
+    else
+        target_version="$lts_version"
+    fi
+    
     local major_version
     major_version=$(echo "$target_version" | cut -d. -f1)
     
@@ -261,8 +284,30 @@ install_via_nodesource() {
 install_via_nvm() {
     log "STEP" "Installing Node.js via NVM (Node Version Manager)"
     
+    # Get version information once and store it
+    log "INFO" "Detecting latest Node.js versions"
+    local latest_version
+    local lts_version
+    
+    # Get latest version from Node.js API
+    latest_version=$(curl -s https://nodejs.org/dist/index.json | grep -o '"version":"[^"]*' | head -n1 | sed 's/"version":"v//')
+    
+    # Get LTS version from Node.js API
+    lts_version=$(curl -s https://nodejs.org/dist/index.json | grep -A1 '"lts":' | grep -v 'false' | head -n1 | grep -o '"version":"[^"]*' | sed 's/"version":"v//')
+    
+    if [[ -z "$latest_version" || -z "$lts_version" ]]; then
+        error_exit "Failed to detect Node.js versions from API"
+    fi
+    
+    log "INFO" "Latest Node.js version: v$latest_version"
+    log "INFO" "Latest LTS Node.js version: v$lts_version"
+    
     local target_version
-    target_version=$(get_latest_nodejs_version)
+    if [[ "$VERSION_TYPE" == "latest" ]]; then
+        target_version="$latest_version"
+    else
+        target_version="$lts_version"
+    fi
     
     log "INFO" "Target Node.js version: v$target_version"
     
