@@ -235,7 +235,7 @@ install_via_nodesource() {
     # Get latest version from Node.js API
     latest_version=$(curl -s https://nodejs.org/dist/index.json | grep -o '"version":"[^"]*' | head -n1 | sed 's/"version":"v//')
     
-    # Get LTS version from Node.js API
+    # Get LTS version from Node.js API  
     lts_version=$(curl -s https://nodejs.org/dist/index.json | grep -A1 '"lts":' | grep -v 'false' | head -n1 | grep -o '"version":"[^"]*' | sed 's/"version":"v//')
     
     if [[ -z "$latest_version" || -z "$lts_version" ]]; then
@@ -265,6 +265,20 @@ install_via_nodesource() {
     if ! curl -fsSL "$setup_script_url" | sudo -E bash -; then
         error_exit "Failed to setup NodeSource repository"
     fi
+    
+    # Update package lists after adding repository
+    if ! sudo apt update -qq; then
+        error_exit "Failed to update package lists after adding NodeSource repository"
+    fi
+    
+    # Install Node.js and npm
+    log "INFO" "Installing Node.js and npm"
+    if ! sudo DEBIAN_FRONTEND=noninteractive apt install -y -qq nodejs; then
+        error_exit "Failed to install Node.js and npm"
+    fi
+    
+    log "SUCCESS" "Node.js installed successfully via NodeSource"
+}
     
     # Update package lists after adding repository
     if ! sudo apt update -qq; then
