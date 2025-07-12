@@ -2,8 +2,6 @@
 
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-
-source ~/.bashrc
+source $HOME/.local/bin/env
 
 uv python install --reinstall
