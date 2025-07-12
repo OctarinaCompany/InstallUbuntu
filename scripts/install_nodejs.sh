@@ -284,20 +284,6 @@ install_via_nodesource() {
     log "SUCCESS" "Node.js installed successfully via NodeSource"
 }
     
-    # Update package lists after adding repository
-    if ! sudo apt update -qq; then
-        error_exit "Failed to update package lists after adding NodeSource repository"
-    fi
-    
-    # Install Node.js and npm
-    log "INFO" "Installing Node.js and npm"
-    if ! sudo DEBIAN_FRONTEND=noninteractive apt install -y -qq nodejs; then
-        error_exit "Failed to install Node.js and npm"
-    fi
-    
-    log "SUCCESS" "Node.js installed successfully via NodeSource"
-}
-
 # Install Node.js via NVM
 install_via_nvm() {
     log "STEP" "Installing Node.js via NVM (Node Version Manager)"
