@@ -25,7 +25,7 @@
 # Date: $(date +%Y-%m-%d)
 # =============================================================================
 
-set -euo pipefail  # Exit on error, undefined variables, and pipe failures
+set -eo pipefail  # Exit on error and pipe failures (allow unbound variables for compatibility)
 
 # =============================================================================
 # Configuration Variables
@@ -520,10 +520,5 @@ main() {
 # Handle script interruption
 trap 'error_exit "Script interrupted by user"' INT TERM
 
-# Execute main function if script is run directly
-if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]]; then
-    main "$@"
-else
-    # Script is being piped or sourced, execute main function
-    main "$@"
-fi
+# Execute main function
+main "$@"
