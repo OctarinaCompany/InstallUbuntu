@@ -272,7 +272,7 @@ if (Get-Module -ListAvailable -Name PSReadLine) {
 [console]::InputEncoding = [console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 # Display welcome message
-Write-Host "PowerShell with oh-my-posh loaded successfully!" -ForegroundColor Green
+# Write-Host "PowerShell with oh-my-posh loaded successfully!" -ForegroundColor Green
 EOF
     
     log_success "PowerShell profile configured"
