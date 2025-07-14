@@ -8,13 +8,11 @@ chmod +x ./dotnet-install.sh
 
 ./dotnet-install.sh --channel STS --install-dir ~/.dotnet-latest
 
-echo 'export DOTNET_ROOT=$HOME/.dotnet-lts' >> ~/.bashrc
+echo 'export DOTNET_ROOT=$HOME/.dotnet-latest' >> ~/.bashrc
 
 echo 'export PATH=$PATH:$DOTNET_ROOT:$DOTNET_ROOT/tools' >> ~/.bashrc
 
-alias dotnet-lts='DOTNET_ROOT=$HOME/.dotnet-lts $HOME/.dotnet-lts/dotnet'
-alias dotnet-latest='DOTNET_ROOT=$HOME/.dotnet-latest $HOME/.dotnet-latest/dotnet'
-
-dotnet-latest
+# alias dotnet-lts='DOTNET_ROOT=$HOME/.dotnet-lts $HOME/.dotnet-lts/dotnet'
+# alias dotnet-latest='DOTNET_ROOT=$HOME/.dotnet-latest $HOME/.dotnet-latest/dotnet'
 
 rm -f dotnet-install.sh
